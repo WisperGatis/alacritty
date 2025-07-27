@@ -223,6 +223,12 @@ pub enum Action {
     /// Create new window in a tab.
     CreateNewTab,
 
+    /// Split terminal horizontally.
+    SplitTerminalHorizontal,
+
+    /// Split terminal vertically.
+    SplitTerminalVertical,
+
     /// Toggle fullscreen.
     ToggleFullscreen,
 
@@ -549,6 +555,21 @@ fn common_keybindings() -> Vec<KeyBinding> {
         "-",    ModifiersState::CONTROL;                                                                 Action::DecreaseFontSize;
         "+" => KeyLocation::Numpad, ModifiersState::CONTROL;                                             Action::IncreaseFontSize;
         "-" => KeyLocation::Numpad, ModifiersState::CONTROL;                                             Action::DecreaseFontSize;
+        // Tabbing api for Linux.
+        "t",    ModifiersState::CONTROL | ModifiersState::SHIFT;                                         Action::CreateNewTab;
+        "]",    ModifiersState::CONTROL | ModifiersState::SHIFT;                                         Action::SelectNextTab;
+        "[",    ModifiersState::CONTROL | ModifiersState::SHIFT;                                         Action::SelectPreviousTab;
+        "1",    ModifiersState::ALT;                                                                     Action::SelectTab1;
+        "2",    ModifiersState::ALT;                                                                     Action::SelectTab2;
+        "3",    ModifiersState::ALT;                                                                     Action::SelectTab3;
+        "4",    ModifiersState::ALT;                                                                     Action::SelectTab4;
+        "5",    ModifiersState::ALT;                                                                     Action::SelectTab5;
+        "6",    ModifiersState::ALT;                                                                     Action::SelectTab6;
+        "7",    ModifiersState::ALT;                                                                     Action::SelectTab7;
+        "8",    ModifiersState::ALT;                                                                     Action::SelectTab8;
+        "9",    ModifiersState::ALT;                                                                     Action::SelectLastTab;
+        "d",    ModifiersState::CONTROL;                                                                 Action::SplitTerminalHorizontal;
+        "d",    ModifiersState::SUPER;                                                                   Action::SplitTerminalVertical;
     )
 }
 
@@ -587,6 +608,8 @@ pub fn platform_key_bindings() -> Vec<KeyBinding> {
         "7",    ModifiersState::SUPER;                                         Action::SelectTab7;
         "8",    ModifiersState::SUPER;                                         Action::SelectTab8;
         "9",    ModifiersState::SUPER;                                         Action::SelectLastTab;
+        "d",    ModifiersState::CONTROL;                                       Action::SplitTerminalHorizontal;
+        "d",    ModifiersState::SUPER;                                         Action::SplitTerminalVertical;
         "0",    ModifiersState::SUPER;                                         Action::ResetFontSize;
         "=",    ModifiersState::SUPER;                                         Action::IncreaseFontSize;
         "+",    ModifiersState::SUPER;                                         Action::IncreaseFontSize;

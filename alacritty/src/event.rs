@@ -872,7 +872,6 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
         self.spawn_daemon(&alacritty, &args);
     }
 
-    #[cfg(not(windows))]
     fn create_new_window(&mut self, #[cfg(target_os = "macos")] tabbing_id: Option<String>) {
         let mut options = WindowOptions::default();
         options.terminal_options.working_directory =
@@ -886,11 +885,16 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
         let _ = self.event_proxy.send_event(Event::new(EventType::CreateWindow(options), None));
     }
 
-    #[cfg(windows)]
-    fn create_new_window(&mut self) {
-        let _ = self
-            .event_proxy
-            .send_event(Event::new(EventType::CreateWindow(WindowOptions::default()), None));
+    fn split_terminal_horizontal(&mut self) {
+        // For now, we'll create a new window as a simple implementation
+        // A full implementation would require UI changes to support splits
+        self.create_new_window(#[cfg(target_os = "macos")] None);
+    }
+
+    fn split_terminal_vertical(&mut self) {
+        // For now, we'll create a new window as a simple implementation
+        // A full implementation would require UI changes to support splits
+        self.create_new_window(#[cfg(target_os = "macos")] None);
     }
 
     fn spawn_daemon<I, S>(&self, program: &str, args: I)

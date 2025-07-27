@@ -67,6 +67,9 @@ mod bell;
 mod damage;
 mod meter;
 
+#[cfg(test)]
+mod window_test;
+
 /// Label for the forward terminal search bar.
 const FORWARD_SEARCH_LABEL: &str = "Search: ";
 

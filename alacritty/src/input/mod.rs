@@ -97,10 +97,21 @@ pub trait ActionContext<T: EventListener> {
     fn terminal(&self) -> &Term<T>;
     fn terminal_mut(&mut self) -> &mut Term<T>;
     fn spawn_new_instance(&mut self) {}
-    #[cfg(target_os = "macos")]
-    fn create_new_window(&mut self, _tabbing_id: Option<String>) {}
-    #[cfg(not(target_os = "macos"))]
-    fn create_new_window(&mut self) {}
+    fn create_new_window(&mut self, #[cfg(target_os = "macos")] _tabbing_id: Option<String>) {
+        #[cfg(target_os = "macos")]
+        {
+            // On macOS, we would use the tabbing_id parameter
+        }
+        // Implementation will be provided by the concrete type
+    }
+
+    fn split_terminal_horizontal(&mut self) {
+        // Implementation will be provided by the concrete type
+    }
+
+    fn split_terminal_vertical(&mut self) {
+        // Implementation will be provided by the concrete type
+    }
     fn change_font_size(&mut self, _delta: f32) {}
     fn reset_font_size(&mut self) {}
     fn pop_message(&mut self) {}
@@ -414,6 +425,13 @@ impl<T: EventListener> Execute<T> for Action {
                     ctx.create_new_window(tabbing_id);
                 }
             },
+            #[cfg(not(target_os = "macos"))]
+            Action::CreateNewTab => {
+                // On Linux, we create a new window as a pseudo-tab
+                ctx.create_new_window();
+            },
+            Action::SplitTerminalHorizontal => ctx.split_terminal_horizontal(),
+            Action::SplitTerminalVertical => ctx.split_terminal_vertical(),
             #[cfg(target_os = "macos")]
             Action::SelectNextTab => ctx.window().select_next_tab(),
             #[cfg(target_os = "macos")]

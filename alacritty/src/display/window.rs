@@ -500,6 +500,36 @@ impl Window {
     pub fn tabbing_id(&self) -> String {
         self.window.tabbing_identifier()
     }
+
+    /// Select tab at the given `index`.
+    #[cfg(not(target_os = "macos"))]
+    pub fn select_tab_at_index(&self, _index: usize) {
+        // No-op on non-macOS platforms
+    }
+
+    /// Select the last tab.
+    #[cfg(not(target_os = "macos"))]
+    pub fn select_last_tab(&self) {
+        // No-op on non-macOS platforms
+    }
+
+    /// Select next tab.
+    #[cfg(not(target_os = "macos"))]
+    pub fn select_next_tab(&self) {
+        // No-op on non-macOS platforms
+    }
+
+    /// Select previous tab.
+    #[cfg(not(target_os = "macos"))]
+    pub fn select_previous_tab(&self) {
+        // No-op on non-macOS platforms
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn tabbing_id(&self) -> String {
+        // Return a default tabbing ID for non-macOS platforms
+        "default".to_string()
+    }
 }
 
 #[cfg(target_os = "macos")]

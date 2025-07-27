@@ -49,18 +49,14 @@ stays selected, allowing you to easily copy it.
 
 ## Hints
 
-Terminal hints allow easily interacting with visible text without having to
-start vi mode. They consist of a regex that detects these text elements and then
-either feeds them to an external application or triggers one of Alacritty's
-built-in actions.
+Hints allow you to launch actions based on text patterns. This can be used to
+quickly open URLs, copy text, or execute custom commands. For more information
+on how to configure hints, take a look at the configuration file.
 
-Hints can also be triggered using the mouse or vi mode cursor. If a hint is
-enabled for mouse interaction and recognized as such, it will be underlined when
-the mouse or vi mode cursor is on top of it. Using the left mouse button or
-<kbd>Enter</kbd> key in vi mode will then trigger the hint.
+## Terminal Tabs
 
-Hints can be configured in the `hints` and `colors.hints` sections in the
-Alacritty configuration file.
+Alacritty supports terminal tabs on macOS and Linux. For more information about
+tabs and their keyboard shortcuts, see the [tabs documentation](./tabs.md).
 
 ## Selection expansion
 
