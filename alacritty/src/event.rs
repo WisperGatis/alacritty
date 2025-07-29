@@ -882,6 +882,12 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
             options.window_tabbing_id = tabbing_id;
         }
 
+        #[cfg(target_os = "linux")]
+        {
+            // Use the same tabbing ID as the current window to create a new tab
+            options.window_tabbing_id = Some(self.display.window.tabbing_id());
+        }
+
         let _ = self.event_proxy.send_event(Event::new(EventType::CreateWindow(options), None));
     }
 

@@ -304,6 +304,11 @@ pub struct WindowOptions {
     pub window_tabbing_id: Option<String>,
 
     #[clap(skip)]
+    #[cfg(target_os = "linux")]
+    /// The window tabbing identifier to use when building a window.
+    pub window_tabbing_id: Option<String>,
+
+    #[clap(skip)]
     #[cfg(not(any(target_os = "macos", windows)))]
     /// `ActivationToken` that we pass to winit.
     pub activation_token: Option<String>,

@@ -102,6 +102,7 @@ pub trait ActionContext<T: EventListener> {
         {
             // On macOS, we would use the tabbing_id parameter
         }
+        
         // Implementation will be provided by the concrete type
     }
 
@@ -417,17 +418,42 @@ impl<T: EventListener> Execute<T> for Action {
             Action::SpawnNewInstance => ctx.spawn_new_instance(),
             #[cfg(target_os = "macos")]
             Action::CreateNewWindow => ctx.create_new_window(None),
-            #[cfg(target_os = "macos")]
             Action::CreateNewTab => {
-                // Tabs on macOS are not possible without decorations.
-                if ctx.config().window.decorations != Decorations::None {
-                    let tabbing_id = Some(ctx.window().tabbing_id());
-                    ctx.create_new_window(tabbing_id);
+                #[cfg(target_os = "macos")]
+                {
+                    // Tabs on macOS are not possible without decorations.
+                    if ctx.config().window.decorations != Decorations::None {
+                        let tabbing_id = Some(ctx.window().tabbing_id());
+                        ctx.create_new_window(tabbing_id);
+                    } else {
+                        ctx.create_new_window();
+                    }
                 }
-            },
-            #[cfg(not(target_os = "macos"))]
-            Action::CreateNewTab => {
-                // On Linux, we create a new window as a pseudo-tab
+                
+                #[cfg(target_os = "linux")]
+                {
+                    // On Linux, first check if we have a supported desktop environment with tools available
+                    if let Some(desktop) = crate::linux_tabs::detect_desktop_environment() {
+                        if desktop.is_available() {
+                            match desktop.create_tab() {
+                                Ok(()) => {
+                                    // Successfully created a native tab
+                                    return;
+                                }
+                                Err(err) => {
+                                    // If tab creation failed, log the error and fall back to creating a new window
+                                    log::warn!("Failed to create native tab: {}, falling back to new window", err);
+                                }
+                            }
+                        } else {
+                            log::debug!("Desktop environment tools not available, using internal tabbing");
+                        }
+                    }
+                    // Fallback to creating a new window (current behavior)
+                    ctx.create_new_window();
+                }
+                
+                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                 ctx.create_new_window();
             },
             Action::SplitTerminalHorizontal => ctx.split_terminal_horizontal(),
@@ -456,6 +482,48 @@ impl<T: EventListener> Execute<T> for Action {
             Action::SelectTab9 => ctx.window().select_tab_at_index(8),
             #[cfg(target_os = "macos")]
             Action::SelectLastTab => ctx.window().select_last_tab(),
+            #[cfg(target_os = "linux")]
+            Action::SelectLastTab => {
+                // On Linux, try to use native tab navigation if available
+                if let Some(desktop) = crate::linux_tabs::detect_desktop_environment() {
+                    if desktop.is_available() {
+                        match desktop.select_next_tab() {
+                            Ok(()) => return, // Successfully used native tab navigation
+                            Err(err) => log::warn!("Failed to select last tab: {}", err),
+                        }
+                    }
+                }
+                // Fallback to window's tab navigation methods
+                ctx.window().select_last_tab();
+            },
+            #[cfg(target_os = "linux")]
+            Action::SelectNextTab => {
+                // On Linux, try to use native tab navigation if available
+                if let Some(desktop) = crate::linux_tabs::detect_desktop_environment() {
+                    if desktop.is_available() {
+                        match desktop.select_next_tab() {
+                            Ok(()) => return, // Successfully used native tab navigation
+                            Err(err) => log::warn!("Failed to select next tab: {}", err),
+                        }
+                    }
+                }
+                // Fallback to window's tab navigation methods
+                ctx.window().select_next_tab();
+            },
+            #[cfg(target_os = "linux")]
+            Action::SelectPreviousTab => {
+                // On Linux, try to use native tab navigation if available
+                if let Some(desktop) = crate::linux_tabs::detect_desktop_environment() {
+                    if desktop.is_available() {
+                        match desktop.select_previous_tab() {
+                            Ok(()) => return, // Successfully used native tab navigation
+                            Err(err) => log::warn!("Failed to select previous tab: {}", err),
+                        }
+                    }
+                }
+                // Fallback to window's tab navigation methods
+                ctx.window().select_previous_tab();
+            },
             _ => (),
         }
     }

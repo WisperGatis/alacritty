@@ -147,8 +147,10 @@ impl WindowContext {
         // Check if new window will be opened as a tab.
         #[cfg(target_os = "macos")]
         let tabbed = options.window_tabbing_id.is_some();
-        #[cfg(not(target_os = "macos"))]
-        let tabbed = options.window_tabbing_id.is_some(); // For Linux, we'll treat tabbed windows similarly
+        #[cfg(target_os = "linux")]
+        let tabbed = options.window_tabbing_id.is_some();
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        let tabbed = false; // Tabbing is only supported on macOS and Linux by default
 
         let display = Display::new(window, gl_context, &config, tabbed)?;
 

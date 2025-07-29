@@ -29,7 +29,20 @@ Join [`#alacritty`] on libera.chat if you have questions or looking for a quick 
 
 ## Features
 
-You can find an overview over the features available in Alacritty [here](./docs/features.md).
+ - **Performance**: Alacritty is the fastest terminal emulator available, providing a smooth experience even with huge amounts of data
+ - **Beautiful rendering**: Alacritty supports font fallback and ligatures
+ - **Extensive configuration**: Colors, key bindings, mouse bindings, and more can be configured in a TOML file
+ - **Cross-platform**: Available for Linux, macOS, and Windows
+ - **OpenGL rendering**: Alacritty uses OpenGL for rendering, providing consistent performance across platforms
+ - **TrueColor support**: Alacritty supports TrueColor (24-bit RGB) colors
+ - **Mouse support**: Alacritty supports mouse reporting and selection
+ - **Clipboard support**: Alacritty supports clipboard operations
+ - **Scrollback buffer**: Alacritty supports a configurable scrollback buffer
+ - **Search functionality**: Alacritty supports searching through the scrollback buffer
+ - **Vi mode**: Alacritty supports a vi-like mode for navigation
+ - **Keyboard hints**: Alacritty supports keyboard hints for URLs and other patterns
+ - **Startup time**: Alacritty has a very fast startup time
+ - **Native tabbing on Linux**: Alacritty supports native tabbing on GNOME and KDE desktop environments
 
 ## Further information
 

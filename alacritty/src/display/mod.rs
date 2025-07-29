@@ -989,6 +989,10 @@ impl Display {
             // Always damage message bar, since it could have messages of the same size in it.
             self.damage_tracker.frame().add_viewport_rect(&size_info, x, y as i32, width, height);
 
+            // Draw tab indicators if we have tabs
+            #[cfg(target_os = "linux")]
+            self.draw_tabs(&mut rects, config);
+            
             // Draw rectangles.
             self.renderer.draw_rects(&size_info, &metrics, rects);
 
@@ -1373,6 +1377,46 @@ impl Display {
         if obstructed_column.is_none_or(|obstructed_column| obstructed_column < column) {
             let glyph_cache = &mut self.glyph_cache;
             self.renderer.draw_string(point, fg, bg, text.chars(), &self.size_info, glyph_cache);
+        }
+    }
+
+    /// Draw tab indicators if we have tabs
+    #[cfg(target_os = "linux")]
+    fn draw_tabs(&self, rects: &mut Vec<RenderRect>, config: &UiConfig) {
+        // For now, we'll just draw a simple tab indicator
+        // A full implementation would require more complex UI elements
+        let num_tabs = self.window.num_tabs();
+        if num_tabs <= 1 {
+            return;
+        }
+
+        let tab_width = self.size_info.width() / num_tabs as f32;
+        let tab_height = 20.0; // Height of tab bar
+        let active_tab = self.window.active_tab_index();
+
+        // Draw background for tab bar
+        let bg = config.colors.primary.background;
+        let tab_bar_rect = RenderRect::new(0., 0., self.size_info.width(), tab_height, bg, 1.);
+        rects.push(tab_bar_rect);
+
+        // Draw individual tabs
+        for i in 0..num_tabs {
+            let x = i as f32 * tab_width;
+            let color = if i == active_tab {
+                config.colors.normal.blue // Highlight active tab
+            } else {
+                config.colors.primary.foreground
+            };
+            
+            // Draw tab background
+            let tab_rect = RenderRect::new(x, 0., tab_width, tab_height, color, 0.3);
+            rects.push(tab_rect);
+            
+            // Draw tab separator
+            if i < num_tabs - 1 {
+                let separator_rect = RenderRect::new(x + tab_width - 1., 0., 1., tab_height, bg, 1.);
+                rects.push(separator_rect);
+            }
         }
     }
 

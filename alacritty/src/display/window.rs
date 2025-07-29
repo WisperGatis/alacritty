@@ -117,6 +117,18 @@ pub struct Window {
     /// Current window title.
     title: String,
 
+    /// Tabbing identifier for grouping windows as tabs.
+    #[cfg(target_os = "linux")]
+    tabbing_id: String,
+
+    /// List of tabs in this window.
+    #[cfg(target_os = "linux")]
+    tabs: Vec<String>,
+
+    /// Index of the currently active tab.
+    #[cfg(target_os = "linux")]
+    active_tab: usize,
+
     is_x11: bool,
     current_mouse_cursor: CursorIcon,
     mouse_visible: bool,
@@ -201,16 +213,23 @@ impl Window {
         log::info!("Window scale factor: {scale_factor}");
         let is_x11 = matches!(window.window_handle().unwrap().as_raw(), RawWindowHandle::Xlib(_));
 
+        let title = identity.title.clone();
         Ok(Self {
             hold: options.terminal_options.hold,
             requested_redraw: false,
-            title: identity.title,
-            current_mouse_cursor,
-            mouse_visible: true,
             has_frame: true,
             scale_factor,
             window,
             is_x11,
+            title: title.clone(),
+            current_mouse_cursor,
+            mouse_visible: true,
+            #[cfg(target_os = "linux")]
+            tabbing_id: options.window_tabbing_id.clone().unwrap_or_else(|| "default".to_string()),
+            #[cfg(target_os = "linux")]
+            tabs: vec![title.clone()],
+            #[cfg(target_os = "linux")]
+            active_tab: 0,
         })
     }
 
@@ -502,32 +521,101 @@ impl Window {
     }
 
     /// Select tab at the given `index`.
-    #[cfg(not(target_os = "macos"))]
-    pub fn select_tab_at_index(&self, _index: usize) {
-        // No-op on non-macOS platforms
+    #[cfg(target_os = "linux")]
+    pub fn select_tab_at_index(&mut self, index: usize) {
+        if index < self.tabs.len() {
+            self.active_tab = index;
+            // Update window title to reflect active tab
+            self.window.set_title(&self.tabs[self.active_tab]);
+        }
     }
 
     /// Select the last tab.
-    #[cfg(not(target_os = "macos"))]
-    pub fn select_last_tab(&self) {
-        // No-op on non-macOS platforms
+    #[cfg(target_os = "linux")]
+    pub fn select_last_tab(&mut self) {
+        if !self.tabs.is_empty() {
+            self.select_tab_at_index(self.tabs.len() - 1);
+        }
     }
 
     /// Select next tab.
-    #[cfg(not(target_os = "macos"))]
-    pub fn select_next_tab(&self) {
-        // No-op on non-macOS platforms
+    #[cfg(target_os = "linux")]
+    pub fn select_next_tab(&mut self) {
+        if self.tabs.len() > 1 {
+            let next_index = (self.active_tab + 1) % self.tabs.len();
+            self.select_tab_at_index(next_index);
+        }
     }
 
     /// Select previous tab.
-    #[cfg(not(target_os = "macos"))]
-    pub fn select_previous_tab(&self) {
-        // No-op on non-macOS platforms
+    #[cfg(target_os = "linux")]
+    pub fn select_previous_tab(&mut self) {
+        if self.tabs.len() > 1 {
+            let prev_index = if self.active_tab == 0 {
+                self.tabs.len() - 1
+            } else {
+                self.active_tab - 1
+            };
+            self.select_tab_at_index(prev_index);
+        }
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     pub fn tabbing_id(&self) -> String {
-        // Return a default tabbing ID for non-macOS platforms
+        self.tabbing_id.clone()
+    }
+
+    /// Add a new tab with the given title.
+    #[cfg(target_os = "linux")]
+    pub fn add_tab(&mut self, title: String) {
+        self.tabs.push(title);
+    }
+
+    /// Get the number of tabs.
+    #[cfg(target_os = "linux")]
+    pub fn num_tabs(&self) -> usize {
+        self.tabs.len()
+    }
+
+    /// Get the index of the active tab.
+    #[cfg(target_os = "linux")]
+    pub fn active_tab_index(&self) -> usize {
+        self.active_tab
+    }
+
+    /// Get the title of the active tab.
+    #[cfg(target_os = "linux")]
+    pub fn active_tab_title(&self) -> &str {
+        &self.tabs[self.active_tab]
+    }
+
+    /// Select tab at the given `index`.
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    pub fn select_tab_at_index(&self, _index: usize) {
+        // No-op on non-macOS, non-Linux platforms
+    }
+
+    /// Select the last tab.
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    pub fn select_last_tab(&self) {
+        // No-op on non-macOS, non-Linux platforms
+    }
+
+    /// Select next tab.
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    pub fn select_next_tab(&self) {
+        // No-op on non-macOS, non-Linux platforms
+    }
+
+    /// Select previous tab.
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    pub fn select_previous_tab(&self) {
+        // No-op on non-macOS, non-Linux platforms
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    pub fn tabbing_id(&self) -> String {
+        // Return a default tabbing ID for non-macOS, non-Linux platforms
         "default".to_string()
     }
 }
