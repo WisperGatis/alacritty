@@ -1,0 +1,115 @@
+---
+description: Alacritty tab management implementation and display rendering guidelines
+globs: **/*.rs
+---
+
+# Alacritty Tab Management Implementation
+
+## Overview
+This codebase implements in-window tab functionality for Alacritty on Linux with comprehensive tab management including creation, switching, closing, and visual rendering.
+
+## Key Architecture
+
+### Platform-Specific Implementation
+- **macOS**: Uses native window tabbing APIs (unchanged)
+- **Linux**: In-window tab system with tab bar UI and multiple terminal instances
+- **Other platforms**: Creates separate windows (unchanged)
+
+### Core Data Structures
+```rust
+// Tab management (Linux only)
+pub struct TabManager {
+    pub tabs: Vec<TabInfo>,
+    pub active_tab: usize,
+}
+
+pub struct TabInfo {
+    pub terminal: Arc<FairMutex<Term<EventProxy>>>,
+    pub title: String,
+    pub master_fd: RawFd,
+    pub shell_pid: u32,
+}
+```
+
+## Critical Files
+
+### Tab Management
+- [alacritty/src/window_context.rs](mdc:alacritty/src/window_context.rs) - Tab data structures and management logic
+- [alacritty/src/event.rs](mdc:alacritty/src/event.rs) - Tab action handling and event processing
+- [alacritty/src/input/mod.rs](mdc:alacritty/src/input/mod.rs) - Tab input handling and key bindings
+
+### Display and Rendering
+- [alacritty/src/display/mod.rs](mdc:alacritty/src/display/mod.rs) - Tab bar rendering and terminal content positioning
+- [alacritty/src/display/content.rs](mdc:alacritty/src/display/content.rs) - Terminal content rendering and cursor management
+
+### Configuration
+- [alacritty/src/config/bindings.rs](mdc:alacritty/src/config/bindings.rs) - Tab-related key bindings
+
+## Tab Bar Rendering Guidelines
+
+### Positioning
+- Tab bar is positioned at the **top** of the terminal window (line 0)
+- Terminal content is offset down by one line when tab bar is present
+- Space is properly reserved by reducing `screen_lines` in `handle_update()`
+
+### Rendering Order
+1. Clear background
+2. Draw tab bar (if multiple tabs exist)
+3. Draw terminal content (offset by +1 line)
+4. Draw cursor (offset by +1 line)
+5. Draw other UI elements
+
+### Key Implementation Details
+```rust
+// Tab bar positioning
+let tab_bar_line = 0; // Top of terminal
+
+// Terminal content offset
+#[cfg(target_os = "linux")]
+if tab_manager.map_or(false, |tm| tm.tabs.len() > 1) {
+    cell.point.line += 1; // Offset all cells down
+}
+
+// Cursor offset
+let cursor = if tab_manager.map_or(false, |tm| tm.tabs.len() > 1) {
+    let mut offset_point = cursor.point();
+    offset_point.line += 1;
+    RenderableCursor::new(offset_point, cursor.shape(), cursor.color(), cursor.width())
+} else {
+    cursor
+};
+```
+
+## Key Bindings
+- `Ctrl+Shift+T`: Create new tab
+- `Ctrl+Shift+W`: Close current tab
+- `Ctrl+Shift+[1-9]`: Switch to tab by number
+- `Ctrl+Shift+Tab`: Switch to previous tab
+- `Ctrl+Tab`: Switch to next tab
+
+## Development Guidelines
+
+### When Modifying Tab Rendering
+1. Always check if tab bar is present before applying offsets
+2. Ensure terminal content is properly offset when tab bar is at top
+3. Maintain proper rendering order (tab bar before terminal content)
+4. Test with both single and multiple tabs
+
+### When Adding New Tab Features
+1. Use `#[cfg(target_os = "linux")]` for Linux-specific code
+2. Update both `TabManager` and `ActionContext` implementations
+3. Ensure proper terminal/PTY creation and cleanup
+4. Mark display as dirty when switching tabs
+
+### Common Patterns
+- Use `tab_manager.map_or(false, |tm| tm.tabs.len() > 1)` to check for multiple tabs
+- Always offset terminal content by +1 line when tab bar is present
+- Use `RenderableCursor::new()` to create offset cursors
+- Apply offsets to both cells and cursor positions
+
+## Testing Considerations
+- Test with single tab (no tab bar visible)
+- Test with multiple tabs (tab bar visible)
+- Verify CLI input line is not hidden
+- Test tab switching and creation
+- Verify proper cleanup when closing tabs

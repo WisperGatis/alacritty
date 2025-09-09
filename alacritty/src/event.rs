@@ -1,4 +1,4 @@
-//! Process window events.
+// Process window events.
 
 use crate::ConfigMonitor;
 use glutin::config::GetGlConfig;
@@ -9,14 +9,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt::Debug;
-#[cfg(not(windows))]
-use std::os::unix::io::RawFd;
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
+#[cfg(not(windows))] use std::os::unix::io::RawFd;
+#[cfg(unix)] use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::rc::Rc;
-#[cfg(unix)]
-use std::sync::Arc;
+#[cfg(unix)] use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, f32, mem};
 
@@ -27,15 +24,21 @@ use glutin::display::GetGlDisplay;
 use log::{debug, error, info, warn};
 use winit::application::ApplicationHandler;
 use winit::event::{
-    ElementState, Event as WinitEvent, Ime, Modifiers, MouseButton, StartCause,
-    Touch as TouchEvent, WindowEvent,
+    ElementState,
+    Event as WinitEvent,
+    Ime,
+    Modifiers,
+    MouseButton,
+    StartCause,
+    Touch as TouchEvent,
+    WindowEvent,
 };
 use winit::event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents, EventLoop, EventLoopProxy};
 use winit::raw_window_handle::HasDisplayHandle;
 use winit::window::WindowId;
 
-use alacritty_terminal::event::{Event as TerminalEvent, EventListener, Notify};
-use alacritty_terminal::event_loop::Notifier;
+use alacritty_terminal::event::{Event as TerminalEvent, EventListener};
+
 use alacritty_terminal::grid::{BidirectionalIterator, Dimensions, Scroll};
 use alacritty_terminal::index::{Boundary, Column, Direction, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
@@ -44,14 +47,16 @@ use alacritty_terminal::term::search::{Match, RegexSearch};
 use alacritty_terminal::term::{self, ClipboardType, Term, TermMode};
 use alacritty_terminal::vte::ansi::NamedColor;
 
+#[cfg(target_os = "linux")]
+extern crate libc;
+
 #[cfg(unix)]
 use crate::cli::{IpcConfig, ParsedOptions};
 use crate::cli::{Options as CliOptions, WindowOptions};
 use crate::clipboard::Clipboard;
 use crate::config::ui_config::{HintAction, HintInternalAction};
 use crate::config::{self, UiConfig};
-#[cfg(not(windows))]
-use crate::daemon::foreground_process_path;
+#[cfg(not(windows))] use crate::daemon::foreground_process_path;
 use crate::daemon::spawn_daemon;
 use crate::display::color::Rgb;
 use crate::display::hint::HintMatch;
@@ -655,8 +660,9 @@ impl Default for InlineSearchState {
     }
 }
 
-pub struct ActionContext<'a, N, T> {
-    pub notifier: &'a mut N,
+pub struct ActionContext<'a, T> {
+    #[cfg(not(target_os = "linux"))]
+    pub notifier: &'a mut Notifier,
     pub terminal: &'a mut Term<T>,
     pub clipboard: &'a mut Clipboard,
     pub mouse: &'a mut Mouse,
@@ -676,16 +682,31 @@ pub struct ActionContext<'a, N, T> {
     pub dirty: &'a mut bool,
     pub occluded: &'a mut bool,
     pub preserve_title: bool,
+    #[cfg(target_os = "linux")]
+    pub tab_manager: &'a mut crate::window_context::TabManager,
     #[cfg(not(windows))]
     pub master_fd: RawFd,
     #[cfg(not(windows))]
     pub shell_pid: u32,
 }
 
-impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionContext<'a, N, T> {
+impl<'a, T: EventListener> input::ActionContext<T> for ActionContext<'a, T> {
     #[inline]
     fn write_to_pty<B: Into<Cow<'static, [u8]>>>(&self, val: B) {
-        self.notifier.notify(val);
+        #[cfg(target_os = "linux")]
+        {
+            // On Linux with tabs, write directly to the active tab's PTY
+            let master_fd = self.tab_manager.active_tab_info().master_fd;
+            let data = val.into();
+            unsafe {
+                let _ = libc::write(master_fd, data.as_ptr() as *const libc::c_void, data.len());
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            // On non-Linux platforms, use the notifier as before
+            self.notifier.notify(val);
+        }
     }
 
     /// Request a redraw.
@@ -731,8 +752,7 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
         }
 
         // Update dirty if actually scrolled or moved Vi cursor in Vi mode.
-        *self.dirty |=
-            lines_changed != 0 || (vi_mode && old_vi_cursor != self.terminal.vi_mode_cursor);
+        *self.dirty |= lines_changed != 0 || (vi_mode && old_vi_cursor != self.terminal.vi_mode_cursor);
     }
 
     // Copy text selection.
@@ -985,7 +1005,7 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
 
         // Enter initial selection text.
         for c in text.chars() {
-            if let '$' | '('..='+' | '?' | '['..='^' | '{'..='}' = c {
+            if let '\n' | '('..='+' | '?' | '['..='^' | '{'..='}' = c {
                 self.search_input('\\');
             }
             self.search_input(c);
@@ -1492,9 +1512,131 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     fn scheduler_mut(&mut self) -> &mut Scheduler {
         self.scheduler
     }
+
+    // Tab management methods (Linux only)
+    #[cfg(target_os = "linux")]
+    fn close_tab(&mut self) {
+        if self.tab_manager.tabs.len() > 1 {
+            // Remove the current active tab
+            if self.tab_manager.remove_tab(self.tab_manager.active_tab) {
+                // Mark display as dirty to trigger redraw
+                *self.dirty = true;
+            }
+        } else {
+            // If only one tab remaining, just close the window
+            debug!("Last tab - window should be closed");
+            // TODO: Implement window close functionality
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn create_new_tab(&mut self) {
+        use crate::daemon::foreground_process_path;
+        use crate::event::EventProxy;
+        use alacritty_terminal::event_loop::EventLoop as PtyEventLoop;
+        use alacritty_terminal::sync::FairMutex;
+        use alacritty_terminal::tty;
+        use alacritty_terminal::Term;
+        use std::sync::Arc;
+
+        // Create event proxy for new tab
+        let event_proxy = EventProxy::new(self.event_proxy.clone(), self.display.window.id());
+
+        // Create the terminal
+        let terminal =
+            Term::new(self.config.term_options(), &self.display.size_info, event_proxy.clone());
+        let terminal_arc = Arc::new(FairMutex::new(terminal));
+
+        // Get current working directory.
+        let working_directory = foreground_process_path(self.master_fd, self.shell_pid).ok();
+
+        // Create PTY config.
+        let mut pty_config = self.config.pty_config().clone();
+        pty_config.working_directory = working_directory;
+
+        // Create the PTY
+        if let Ok(pty) =
+            tty::new(&pty_config, self.display.size_info.into(), self.display.window.id().into())
+        {
+            #[cfg(not(windows))]
+            let master_fd = {
+                use std::os::unix::io::AsRawFd;
+                pty.file().as_raw_fd()
+            };
+            #[cfg(not(windows))]
+            let shell_pid = pty.child().id();
+
+            // Create and spawn the PTY event loop
+            let pty_event_loop = PtyEventLoop::new(
+                terminal_arc.clone(),
+                event_proxy,
+                pty,
+                self.config.pty_config().drain_on_exit,
+                self.config.debug.ref_test,
+            )
+            .expect("Failed to create PTY event loop");
+
+            let _io_thread = pty_event_loop.spawn();
+
+            // Add the new tab to the tab manager
+            let _tab_index = self.tab_manager.add_tab(terminal_arc, master_fd, shell_pid);
+
+            // Switch to the new tab
+            self.tab_manager.active_tab = self.tab_manager.tabs.len() - 1;
+
+            // Mark display as dirty to trigger redraw
+            *self.dirty = true;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn switch_to_next_tab(&mut self) {
+        if self.tab_manager.tabs.len() > 1 {
+            self.tab_manager.next_tab();
+            *self.dirty = true;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn switch_to_previous_tab(&mut self) {
+        if self.tab_manager.tabs.len() > 1 {
+            self.tab_manager.previous_tab();
+            *self.dirty = true;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn switch_to_tab(&mut self, index: usize) {
+        if self.tab_manager.switch_to_tab(index) {
+            *self.dirty = true;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn switch_to_last_tab(&mut self) {
+        if self.tab_manager.tabs.len() > 1 {
+            let last_index = self.tab_manager.tabs.len() - 1;
+            if self.tab_manager.switch_to_tab(last_index) {
+                *self.dirty = true;
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn handle_tab_click(&mut self, x: f32, y: f32) -> bool {
+        if let Some(tab_index) =
+            self.tab_manager.tab_clicked(x, y, self.display.size_info.columns(), self.display.size_info.screen_lines())
+        {
+            if self.tab_manager.switch_to_tab(tab_index) {
+                *self.dirty = true;
+                return true;
+            }
+        }
+        false
+    }
 }
 
-impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
+impl<'a, T: EventListener> ActionContext<'a, T> {
     fn update_search(&mut self) {
         let regex = match self.search_state.regex() {
             Some(regex) => regex,
@@ -1624,8 +1766,7 @@ impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
         // Check terminal cursor style.
         let terminal_blinking = self.terminal.cursor_style().blinking;
         let mut blinking = cursor_style.blinking_override().unwrap_or(terminal_blinking);
-        blinking &= (vi_mode || self.terminal().mode().contains(TermMode::SHOW_CURSOR))
-            && self.display().ime.preedit().is_none();
+        blinking &= (vi_mode || self.terminal().mode().contains(TermMode::SHOW_CURSOR)) && self.display().ime.preedit().is_none();
 
         // Update cursor blinking state.
         let window_id = self.display.window.id();
@@ -1836,7 +1977,7 @@ pub struct AccumulatedScroll {
     pub y: f64,
 }
 
-impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
+impl input::Processor<EventProxy, ActionContext<'_, EventProxy>> {
     /// Handle events from winit.
     pub fn handle_event(&mut self, event: WinitEvent<Event>) {
         match event {

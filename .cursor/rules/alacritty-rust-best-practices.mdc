@@ -1,0 +1,129 @@
+---
+globs: **/*.rs
+---
+
+# Alacritty Rust Development Best Practices
+
+## Code Style and Structure
+- Follow Rust style guide and clean code principles
+- Use descriptive variable and method names (e.g., `is_user_signed_in`, `calculate_total`)
+- Structure code in logical modules following domain-driven design
+- Implement proper separation of concerns (handlers, services, repositories)
+
+## Type System and Ownership
+- Use proper type definitions and traits
+- Implement proper ownership patterns with `Arc<FairMutex<T>>` for shared terminal state
+- Use proper borrowing and lifetimes, especially in display rendering
+- Implement proper smart pointers for resource management
+- Use proper type conversions and safety patterns
+
+## Error Handling
+- Use custom error types for different modules
+- Implement proper error propagation with `Result<T, E>`
+- Use `?` operator for error handling where appropriate
+- Log errors with structured data using the `log` crate
+- Handle terminal-specific errors gracefully
+
+## Async Programming
+- Use `async/await` patterns for I/O operations
+- Implement proper resource cleanup in async contexts
+- Use `tokio` for async runtime where needed
+- Handle async errors properly with `Result` types
+
+## Platform-Specific Code
+- Use `#[cfg(target_os = "linux")]` for Linux-specific features
+- Use `#[cfg(not(target_os = "linux"))]` for non-Linux platforms
+- Implement proper fallbacks for cross-platform compatibility
+- Document platform-specific behavior clearly
+
+## Memory Management
+- Use `Arc<FairMutex<T>>` for shared terminal state
+- Implement proper cleanup in `Drop` implementations
+- Avoid unnecessary allocations in hot paths
+- Use `Cow<str>` for string handling where appropriate
+
+## Testing
+- Write unit tests for core business logic
+- Use `#[cfg(test)]` modules for test code
+- Test platform-specific code with appropriate conditional compilation
+- Mock external dependencies for testing
+
+## Performance
+- Use `#[inline]` for small, frequently called functions
+- Avoid unnecessary heap allocations in rendering loops
+- Use efficient data structures for terminal grid operations
+- Profile performance-critical code paths
+
+## Documentation
+- Use `///` for public API documentation
+- Include examples in documentation where helpful
+- Document platform-specific behavior
+- Use `//!` for module-level documentation
+
+## Common Patterns in Alacritty
+
+### Terminal State Management
+```rust
+// Use Arc<FairMutex<T>> for shared terminal state
+let terminal: Arc<FairMutex<Term<EventProxy>>> = Arc::new(FairMutex::new(term));
+
+// Access terminal state safely
+let terminal_guard = terminal.lock();
+// Use terminal_guard here
+drop(terminal_guard); // Explicit drop for clarity
+```
+
+### Platform-Specific Implementation
+```rust
+#[cfg(target_os = "linux")]
+fn linux_specific_function() {
+    // Linux-specific implementation
+}
+
+#[cfg(not(target_os = "linux"))]
+fn other_platform_function() {
+    // Other platform implementation
+}
+```
+
+### Error Handling
+```rust
+// Custom error types
+#[derive(Debug)]
+pub struct DisplayError {
+    message: String,
+    source: Option<Box<dyn std::error::Error + Send + Sync>>,
+}
+
+impl std::error::Error for DisplayError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|e| e.as_ref() as &dyn std::error::Error)
+    }
+}
+```
+
+### Rendering Patterns
+```rust
+// Proper coordinate handling
+let point = Point::new(line, Column(column));
+
+// Safe cell access
+if let Some(cell) = grid.get(point) {
+    // Process cell
+}
+
+// Damage tracking for performance
+self.damage_tracker.frame().damage_point(point);
+```
+
+## Security Considerations
+- Validate all input from terminal and user interactions
+- Use secure string handling to prevent buffer overflows
+- Implement proper bounds checking for grid operations
+- Handle malformed terminal sequences gracefully
+
+## Build and Dependencies
+- Use appropriate Cargo features for optional functionality
+- Keep dependencies up to date and secure
+- Use `cargo check` for quick compilation verification
+- Use `cargo build --release` for optimized builds

@@ -1,0 +1,125 @@
+---
+description: Alacritty display rendering system and OpenGL rendering guidelines
+globs: alacritty/src/display/**/*.rs,alacritty/src/renderer/**/*.rs
+---
+
+# Alacritty Display Rendering System
+
+## Overview
+The display system handles terminal rendering, OpenGL operations, and UI element positioning in Alacritty.
+
+## Core Components
+
+### Display Module
+- [alacritty/src/display/mod.rs](mdc:alacritty/src/display/mod.rs) - Main display logic and rendering orchestration
+- [alacritty/src/display/content.rs](mdc:alacritty/src/display/content.rs) - Terminal content rendering and cursor management
+- [alacritty/src/display/window.rs](mdc:alacritty/src/display/window.rs) - Window management and sizing
+
+### Renderer System
+- [alacritty/src/renderer/mod.rs](mdc:alacritty/src/renderer/mod.rs) - OpenGL renderer abstraction
+- [alacritty/src/renderer/text/](mdc:alacritty/src/renderer/text/) - Text rendering with glyph caching
+- [alacritty/src/renderer/rects.rs](mdc:alacritty/src/renderer/rects.rs) - Rectangle and line rendering
+
+## Rendering Pipeline
+
+### Main Draw Function
+The `draw()` function in [alacritty/src/display/mod.rs](mdc:alacritty/src/display/mod.rs) follows this order:
+
+1. **Clear background** - `self.renderer.clear()`
+2. **Draw tab bar** - If multiple tabs exist (Linux only)
+3. **Draw terminal grid** - All terminal cells and content
+4. **Draw UI elements** - Cursor, search bar, message bar
+5. **Draw overlays** - Visual bell, hyperlink previews
+
+### Critical Rendering Patterns
+
+#### Cell Positioning
+```rust
+// Terminal cells are positioned using Point<usize> coordinates
+// Line 0 = top of terminal, Column 0 = leftmost position
+let cell_point = Point::new(line, column);
+```
+
+#### Padding and Offsets
+```rust
+// Content is positioned using padding
+let x = cell.column.0 as f32 * size_info.cell_width() + size_info.padding_x();
+let y = cell.line as f32 * size_info.cell_height() + size_info.padding_y();
+```
+
+#### Tab Bar Offset Pattern
+When tab bar is present at top, offset all terminal content:
+```rust
+// Offset terminal content by one line
+if tab_bar_present {
+    cell.point.line += 1;
+    cursor.point.line += 1;
+}
+```
+
+## SizeInfo and Dimensions
+
+### Key Properties
+- `screen_lines()` - Number of visible terminal lines
+- `columns()` - Number of visible terminal columns
+- `cell_width()` / `cell_height()` - Size of each terminal cell
+- `padding_x()` / `padding_y()` - Window padding
+
+### Space Reservation
+```rust
+// Reserve space for UI elements
+new_size.reserve_lines(message_bar_lines + search_lines + tab_bar_lines);
+```
+
+## OpenGL Rendering
+
+### Shader Programs
+- Text rendering uses GLSL shaders in [alacritty/res/](mdc:alacritty/res/)
+- Rectangle rendering for backgrounds and UI elements
+- Proper viewport and projection matrix handling
+
+### Glyph Caching
+- Glyphs are cached in texture atlases
+- Font metrics determine cell sizing
+- Dynamic font loading and cache invalidation
+
+## Development Guidelines
+
+### When Modifying Rendering
+1. **Maintain rendering order** - UI elements must be drawn in correct sequence
+2. **Handle offsets properly** - Account for tab bar and other UI elements
+3. **Use proper coordinates** - Terminal uses 0-based indexing
+4. **Update damage tracking** - Mark areas that need redrawing
+
+### When Adding UI Elements
+1. **Reserve space** - Use `reserve_lines()` for new UI elements
+2. **Position correctly** - Use proper padding and cell dimensions
+3. **Handle visibility** - Only draw when element should be visible
+4. **Update damage** - Mark element area as damaged when changed
+
+### Common Patterns
+```rust
+// Check if UI element should be visible
+if condition {
+    self.draw_element(config, data);
+}
+
+// Proper coordinate calculation
+let point = Point::new(line, Column(column));
+
+// Damage tracking for redraws
+self.damage_tracker.frame().damage_point(point);
+```
+
+## Performance Considerations
+- Use damage tracking to minimize redraws
+- Batch similar rendering operations
+- Cache frequently used calculations
+- Avoid unnecessary OpenGL state changes
+
+## Testing Rendering Changes
+- Test with different window sizes
+- Verify proper positioning of all UI elements
+- Check tab bar visibility and positioning
+- Ensure CLI input line is always visible
+- Test with different font sizes and scaling

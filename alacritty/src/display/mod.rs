@@ -32,7 +32,8 @@ use alacritty_terminal::index::{Column, Direction, Line, Point};
 use alacritty_terminal::selection::Selection;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{
-    self, LineDamageBounds, MIN_COLUMNS, MIN_SCREEN_LINES, Term, TermDamage, TermMode,
+    self, LineDamageBounds,
+    MIN_COLUMNS, MIN_SCREEN_LINES, Term, TermDamage, TermMode,
 };
 use alacritty_terminal::vte::ansi::{CursorShape, NamedColor};
 
@@ -655,6 +656,7 @@ impl Display {
         message_buffer: &MessageBuffer,
         search_state: &mut SearchState,
         config: &UiConfig,
+        #[cfg(target_os = "linux")] tab_manager: Option<&crate::window_context::TabManager>,
     ) where
         T: EventListener,
     {
@@ -703,7 +705,14 @@ impl Display {
         let search_active = search_state.history_index.is_some();
         let message_bar_lines = message_buffer.message().map_or(0, |m| m.text(&new_size).len());
         let search_lines = usize::from(search_active);
-        new_size.reserve_lines(message_bar_lines + search_lines);
+
+        // Reserve space for tab bar on Linux when multiple tabs are present
+        #[cfg(target_os = "linux")]
+        let tab_bar_lines = if tab_manager.map_or(false, |tm| tm.tabs.len() > 1) { 1 } else { 0 };
+        #[cfg(not(target_os = "linux"))]
+        let tab_bar_lines = 0;
+
+        new_size.reserve_lines(message_bar_lines + search_lines + tab_bar_lines);
 
         // Update resize increments.
         if config.window.resize_increments {
@@ -779,6 +788,7 @@ impl Display {
         message_buffer: &MessageBuffer,
         config: &UiConfig,
         search_state: &mut SearchState,
+        #[cfg(target_os = "linux")] tab_manager: Option<&crate::window_context::TabManager>,
     ) {
         // Collect renderable content before the terminal is dropped.
         let mut content = RenderableContent::new(config, self, &terminal, search_state);
@@ -796,6 +806,9 @@ impl Display {
         let total_lines = terminal.grid().total_lines();
         let metrics = self.glyph_cache.font_metrics();
         let size_info = self.size_info;
+
+        // Tab space is now properly reserved in handle_update, no need for double offset
+        let terminal_size_info = size_info;
 
         let vi_mode = terminal.mode().contains(TermMode::VI);
         let vi_cursor_point = if vi_mode { Some(terminal.vi_mode_cursor.point) } else { None };
@@ -836,6 +849,15 @@ impl Display {
         self.make_current();
 
         self.renderer.clear(background_color, config.window_opacity());
+        
+        // Draw tab bar on Linux if we have tabs (before terminal content)
+        #[cfg(target_os = "linux")]
+        if let Some(tab_manager) = tab_manager {
+            if tab_manager.tabs.len() > 1 {
+                self.draw_tab_bar(config, tab_manager);
+            }
+        }
+        
         let mut lines = RenderLines::new();
 
         // Optimize loop hint comparator.
@@ -856,6 +878,12 @@ impl Display {
             let damage_tracker = &mut self.damage_tracker;
 
             let cells = grid_cells.into_iter().map(|mut cell| {
+                // Offset terminal content by one line when tab bar is at the top
+                #[cfg(target_os = "linux")]
+                if tab_manager.map_or(false, |tm| tm.tabs.len() > 1) {
+                    cell.point.line += 1;
+                }
+
                 // Underline hints hovered by mouse or vi mode cursor.
                 if has_highlighted_hint {
                     let point = term::viewport_to_point(display_offset, cell.point);
@@ -875,10 +903,10 @@ impl Display {
 
                 cell
             });
-            self.renderer.draw_cells(&size_info, glyph_cache, cells);
+            self.renderer.draw_cells(&terminal_size_info, glyph_cache, cells);
         }
 
-        let mut rects = lines.rects(&metrics, &size_info);
+        let mut rects = lines.rects(&metrics, &terminal_size_info);
 
         if let Some(vi_cursor_point) = vi_cursor_point {
             // Indicate vi mode by showing the cursor's position in the top right corner.
@@ -893,7 +921,20 @@ impl Display {
         };
 
         // Draw cursor.
-        rects.extend(cursor.rects(&size_info, config.cursor.thickness()));
+        let cursor = if tab_manager.map_or(false, |tm| tm.tabs.len() > 1) {
+            // Offset cursor by one line when tab bar is at the top
+            let mut offset_point = cursor.point();
+            offset_point.line += 1;
+            RenderableCursor::new(
+                offset_point,
+                cursor.shape(),
+                cursor.color(),
+                cursor.width(),
+            )
+        } else {
+            cursor
+        };
+        rects.extend(cursor.rects(&terminal_size_info, config.cursor.thickness()));
 
         // Push visual bell after url/underline/strikeout rects.
         let visual_bell_intensity = self.visual_bell.intensity();
@@ -999,7 +1040,7 @@ impl Display {
                     fg,
                     bg,
                     message_text.chars(),
-                    &size_info,
+                    &self.size_info,
                     glyph_cache,
                 );
             }
@@ -1007,6 +1048,7 @@ impl Display {
             // Draw rectangles.
             self.renderer.draw_rects(&size_info, &metrics, rects);
         }
+
 
         self.draw_render_timer(config);
 
@@ -1303,6 +1345,100 @@ impl Display {
         }
     }
 
+    /// Draw tab bar (Linux only).
+    #[cfg(target_os = "linux")]
+    #[inline(never)]
+    fn draw_tab_bar(&mut self, config: &UiConfig, tab_manager: &crate::window_context::TabManager) {
+        let fg = config.colors.footer_bar_foreground();
+        let bg = config.colors.footer_bar_background();
+        let active_bg = config.colors.primary.foreground;
+        let separator_fg = config.colors.primary.dim_foreground.unwrap_or_else(|| {
+            // Create a dimmed version of the foreground color if dim_foreground is not set
+            let rgb = fg;
+            crate::display::color::Rgb::new(
+                (rgb.r as f32 * 0.6) as u8,
+                (rgb.g as f32 * 0.6) as u8,
+                (rgb.b as f32 * 0.6) as u8,
+            )
+        });
+
+        // Position tab bar at the top of the screen (first line)
+        let tab_bar_line = 0;
+        
+        // Clear the tab bar area
+        let tab_bar_text = " ".repeat(self.size_info.columns());
+        let tab_bar_point = Point::new(tab_bar_line, Column(0));
+
+        self.renderer.draw_string(
+            tab_bar_point,
+            fg,
+            bg,
+            tab_bar_text.chars(),
+            &self.size_info,
+            &mut self.glyph_cache,
+        );
+
+        // Calculate tab width accounting for separators
+        let tab_count = tab_manager.tabs.len();
+        let available_width = self.size_info.columns();
+        let separator_count = if tab_count > 1 { tab_count - 1 } else { 0 };
+        let usable_width = available_width.saturating_sub(separator_count);
+        let tab_width = if tab_count > 0 { usable_width / tab_count } else { available_width };
+
+        // Draw each tab with separators
+        for (i, tab) in tab_manager.tabs.iter().enumerate() {
+            let is_active = i == tab_manager.active_tab;
+            let start_col = i * tab_width + i; // Add separator offset
+            let end_col = start_col + tab_width;
+            let display_width = tab_width;
+
+            if start_col >= available_width {
+                break;
+            }
+
+            // Truncate or pad tab title to fit width
+            let tab_title = if tab.title.len() > display_width.saturating_sub(2) {
+                let max_title_len = display_width.saturating_sub(3);
+                if max_title_len > 0 {
+                    format!(" {}… ", &tab.title[..max_title_len])
+                } else {
+                    " … ".to_string()
+                }
+            } else if display_width >= 2 {
+                format!(" {:^width$} ", tab.title, width = display_width.saturating_sub(2)) 
+            } else {
+                tab.title.chars().take(display_width).collect()
+            };
+
+            let tab_point = Point::new(tab_bar_line, Column(start_col));
+            let tab_bg = if is_active { active_bg } else { bg };
+            let tab_fg = if is_active { bg } else { fg };
+
+            // Draw the tab content
+            self.renderer.draw_string(
+                tab_point,
+                tab_fg,
+                tab_bg,
+                tab_title.chars().take(display_width),
+                &self.size_info,
+                &mut self.glyph_cache,
+            );
+
+            // Draw separator after this tab (except for the last tab)
+            if i < tab_count - 1 && end_col < available_width {
+                let separator_point = Point::new(tab_bar_line, Column(end_col));
+                self.renderer.draw_string(
+                    separator_point,
+                    separator_fg,
+                    bg,
+                    "│".chars(),
+                    &self.size_info,
+                    &mut self.glyph_cache,
+                );
+            }
+        }
+    }
+
     /// Draw current search regex.
     #[inline(never)]
     fn draw_search(&mut self, config: &UiConfig, text: &str) {
@@ -1437,7 +1573,7 @@ impl Display {
         self.window.has_frame = false;
 
         // Get the display vblank interval.
-        let monitor_vblank_interval = 1_000_000.
+        let monitor_vblank_interval = 1_000_000. 
             / self
                 .window
                 .current_monitor()
@@ -1445,7 +1581,7 @@ impl Display {
                 .unwrap_or(60_000) as f64;
 
         // Now convert it to micro seconds.
-        let monitor_vblank_interval =
+        let monitor_vblank_interval = 
             Duration::from_micros((1000. * monitor_vblank_interval) as u64);
 
         let swap_timeout = self.frame_timer.compute_timeout(monitor_vblank_interval);

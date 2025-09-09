@@ -142,6 +142,21 @@ pub trait ActionContext<T: EventListener> {
         S: AsRef<OsStr>,
     {
     }
+    // Tab management methods (Linux only)
+    #[cfg(target_os = "linux")]
+    fn create_new_tab(&mut self) {}
+    #[cfg(target_os = "linux")]
+    fn close_tab(&mut self) {}
+    #[cfg(target_os = "linux")]
+    fn switch_to_next_tab(&mut self) {}
+    #[cfg(target_os = "linux")]
+    fn switch_to_previous_tab(&mut self) {}
+    #[cfg(target_os = "linux")]
+    fn switch_to_tab(&mut self, _index: usize) {}
+    #[cfg(target_os = "linux")]
+    fn switch_to_last_tab(&mut self) {}
+    #[cfg(target_os = "linux")]
+    fn handle_tab_click(&mut self, _x: f32, _y: f32) -> bool { false }
 }
 
 impl Action {
@@ -406,38 +421,115 @@ impl<T: EventListener> Execute<T> for Action {
             Action::SpawnNewInstance => ctx.spawn_new_instance(),
             #[cfg(target_os = "macos")]
             Action::CreateNewWindow => ctx.create_new_window(None),
-            #[cfg(target_os = "macos")]
             Action::CreateNewTab => {
-                // Tabs on macOS are not possible without decorations.
-                if ctx.config().window.decorations != Decorations::None {
-                    let tabbing_id = Some(ctx.window().tabbing_id());
-                    ctx.create_new_window(tabbing_id);
+                #[cfg(target_os = "macos")]
+                {
+                    // Tabs on macOS are not possible without decorations.
+                    if ctx.config().window.decorations != Decorations::None {
+                        let tabbing_id = Some(ctx.window().tabbing_id());
+                        ctx.create_new_window(tabbing_id);
+                    }
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    // For Linux: create new tab within the same window
+                    ctx.create_new_tab();
+                }
+                #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
+                {
+                    // For other platforms: create a new window
+                    ctx.create_new_window();
                 }
             },
-            #[cfg(target_os = "macos")]
-            Action::SelectNextTab => ctx.window().select_next_tab(),
-            #[cfg(target_os = "macos")]
-            Action::SelectPreviousTab => ctx.window().select_previous_tab(),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab1 => ctx.window().select_tab_at_index(0),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab2 => ctx.window().select_tab_at_index(1),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab3 => ctx.window().select_tab_at_index(2),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab4 => ctx.window().select_tab_at_index(3),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab5 => ctx.window().select_tab_at_index(4),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab6 => ctx.window().select_tab_at_index(5),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab7 => ctx.window().select_tab_at_index(6),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab8 => ctx.window().select_tab_at_index(7),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab9 => ctx.window().select_tab_at_index(8),
-            #[cfg(target_os = "macos")]
-            Action::SelectLastTab => ctx.window().select_last_tab(),
+            Action::CloseTab => {
+                #[cfg(target_os = "linux")]
+                ctx.close_tab();
+                #[cfg(not(target_os = "linux"))]
+                {
+                    // On non-Linux platforms, CloseTab just closes the window
+                    debug!("CloseTab: Closing window on non-Linux platform");
+                }
+            },
+            Action::SelectNextTab => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_next_tab();
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_next_tab();
+                #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
+                {
+                    debug!("SelectNextTab: Cross-platform tab switching not yet implemented for this platform");
+                }
+            },
+            Action::SelectPreviousTab => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_previous_tab();
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_previous_tab();
+                #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
+                {
+                    debug!("SelectPreviousTab: Cross-platform tab switching not yet implemented for this platform");
+                }
+            },
+            Action::SelectTab1 => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_tab_at_index(0);
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_tab(0);
+            },
+            Action::SelectTab2 => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_tab_at_index(1);
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_tab(1);
+            },
+            Action::SelectTab3 => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_tab_at_index(2);
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_tab(2);
+            },
+            Action::SelectTab4 => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_tab_at_index(3);
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_tab(3);
+            },
+            Action::SelectTab5 => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_tab_at_index(4);
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_tab(4);
+            },
+            Action::SelectTab6 => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_tab_at_index(5);
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_tab(5);
+            },
+            Action::SelectTab7 => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_tab_at_index(6);
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_tab(6);
+            },
+            Action::SelectTab8 => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_tab_at_index(7);
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_tab(7);
+            },
+            Action::SelectTab9 => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_tab_at_index(8);
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_tab(8);
+            },
+            Action::SelectLastTab => {
+                #[cfg(target_os = "macos")]
+                ctx.window().select_last_tab();
+                #[cfg(target_os = "linux")]
+                ctx.switch_to_last_tab();
+            },
             _ => (),
         }
     }
@@ -643,6 +735,17 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
                 ClickState::DoubleClick if elapsed < CLICK_THRESHOLD => ClickState::TripleClick,
                 _ => ClickState::Click,
             };
+
+            // Check for tab bar clicks on Linux first
+            #[cfg(target_os = "linux")]
+            if let MouseButton::Left = button {
+                let raw_x = self.ctx.mouse().x as f32;
+                let raw_y = self.ctx.mouse().y as f32;
+                if self.ctx.handle_tab_click(raw_x, raw_y) {
+                    // Tab click handled, don't process as normal click
+                    return;
+                }
+            }
 
             // Load mouse point, treating message bar and padding as the closest cell.
             let display_offset = self.ctx.terminal().grid().display_offset();

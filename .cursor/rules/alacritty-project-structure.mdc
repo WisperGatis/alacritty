@@ -1,0 +1,106 @@
+---
+alwaysApply: true
+---
+
+# Alacritty Project Structure Guide
+
+## Main Entry Points
+- [alacritty/src/main.rs](mdc:alacritty/src/main.rs) - Main application entry point
+- [alacritty/src/window_context.rs](mdc:alacritty/src/window_context.rs) - Window and tab management context
+- [alacritty/src/event.rs](mdc:alacritty/src/event.rs) - Event handling and action processing
+
+## Core Modules
+
+### Terminal Management
+- [alacritty_terminal/](mdc:alacritty_terminal/) - Core terminal emulation library
+- [alacritty_terminal/src/term/mod.rs](mdc:alacritty_terminal/src/term/mod.rs) - Terminal state and operations
+- [alacritty_terminal/src/grid/](mdc:alacritty_terminal/src/grid/) - Terminal grid data structures
+
+### Display System
+- [alacritty/src/display/mod.rs](mdc:alacritty/src/display/mod.rs) - Main display logic and rendering
+- [alacritty/src/display/content.rs](mdc:alacritty/src/display/content.rs) - Terminal content rendering
+- [alacritty/src/renderer/](mdc:alacritty/src/renderer/) - OpenGL rendering system
+
+### Configuration
+- [alacritty_config/](mdc:alacritty_config/) - Configuration parsing and validation
+- [alacritty_config_derive/](mdc:alacritty_config_derive/) - Derive macros for configuration
+- [alacritty/src/config/](mdc:alacritty/src/config/) - Configuration structures and defaults
+
+### Input Handling
+- [alacritty/src/input/mod.rs](mdc:alacritty/src/input/mod.rs) - Input processing and key bindings
+- [alacritty/src/input/keyboard.rs](mdc:alacritty/src/input/keyboard.rs) - Keyboard input handling
+
+## Platform-Specific Code
+
+### Linux
+- Tab management in [alacritty/src/window_context.rs](mdc:alacritty/src/window_context.rs)
+- Tab rendering in [alacritty/src/display/mod.rs](mdc:alacritty/src/display/mod.rs)
+- Tab input handling in [alacritty/src/input/mod.rs](mdc:alacritty/src/input/mod.rs)
+
+### macOS
+- Native window tabbing in [alacritty/src/macos/](mdc:alacritty/src/macos/)
+- Platform-specific locale handling
+
+### Windows
+- Windows-specific TTY handling in [alacritty_terminal/src/tty/windows/](mdc:alacritty_terminal/src/tty/windows/)
+
+## Key Data Structures
+
+### Tab Management (Linux)
+```rust
+pub struct TabManager {
+    pub tabs: Vec<TabInfo>,
+    pub active_tab: usize,
+}
+
+pub struct TabInfo {
+    pub terminal: Arc<FairMutex<Term<EventProxy>>>,
+    pub title: String,
+    pub master_fd: RawFd,
+    pub shell_pid: u32,
+}
+```
+
+### Window Context
+```rust
+pub struct WindowContext {
+    pub display: Display,
+    pub message_buffer: MessageBuffer,
+    pub dirty: bool,
+    // Platform-specific terminal management
+    #[cfg(target_os = "linux")]
+    tab_manager: TabManager,
+    #[cfg(not(target_os = "linux"))]
+    terminal: Arc<FairMutex<Term<EventProxy>>>,
+}
+```
+
+## Build System
+- [Cargo.toml](mdc:Cargo.toml) - Main workspace configuration
+- [alacritty/Cargo.toml](mdc:alacritty/Cargo.toml) - Main binary crate
+- [Makefile](mdc:Makefile) - Build automation and testing
+
+## Resources
+- [alacritty/res/](mdc:alacritty/res/) - Shader files and resources
+- [extra/](mdc:extra/) - Documentation, completions, and assets
+- [docs/](mdc:docs/) - Project documentation
+
+## Development Workflow
+1. **Configuration changes**: Modify files in [alacritty/src/config/](mdc:alacritty/src/config/)
+2. **Display changes**: Update [alacritty/src/display/mod.rs](mdc:alacritty/src/display/mod.rs)
+3. **Input handling**: Modify [alacritty/src/input/mod.rs](mdc:alacritty/src/input/mod.rs)
+4. **Terminal logic**: Update [alacritty_terminal/](mdc:alacritty_terminal/) crate
+5. **Platform-specific**: Use appropriate `#[cfg()]` attributes
+
+## Testing
+- Unit tests in `#[cfg(test)]` modules
+- Integration tests in [alacritty_terminal/tests/](mdc:alacritty_terminal/tests/)
+- Reference tests in [alacritty_terminal/tests/ref/](mdc:alacritty_terminal/tests/ref/)
+
+## Common Build Commands
+```bash
+cargo check          # Quick compilation check
+cargo build          # Debug build
+cargo build --release # Optimized build
+cargo test           # Run tests
+```

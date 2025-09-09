@@ -223,6 +223,9 @@ pub enum Action {
     /// Create new window in a tab.
     CreateNewTab,
 
+    /// Close current tab.
+    CloseTab,
+
     /// Toggle fullscreen.
     ToggleFullscreen,
 
@@ -549,6 +552,8 @@ fn common_keybindings() -> Vec<KeyBinding> {
         "-",    ModifiersState::CONTROL;                                                                 Action::DecreaseFontSize;
         "+" => KeyLocation::Numpad, ModifiersState::CONTROL;                                             Action::IncreaseFontSize;
         "-" => KeyLocation::Numpad, ModifiersState::CONTROL;                                             Action::DecreaseFontSize;
+        "t",    ModifiersState::CONTROL | ModifiersState::SHIFT;                                         Action::CreateNewTab;
+        "w",    ModifiersState::CONTROL | ModifiersState::SHIFT;                                         Action::CloseTab;
     )
 }
 

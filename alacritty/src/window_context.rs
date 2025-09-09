@@ -1,11 +1,10 @@
-//! Terminal window context.
-
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 use std::mem;
 #[cfg(not(windows))]
 use std::os::unix::io::{AsRawFd, RawFd};
+
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,7 +14,7 @@ use glutin::display::GetGlDisplay;
 #[cfg(all(feature = "x11", not(any(target_os = "macos", windows))))]
 use glutin::platform::x11::X11GlConfigExt;
 use log::info;
-use serde_json as json;
+
 use winit::event::{Event as WinitEvent, Modifiers, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::raw_window_handle::HasDisplayHandle;
@@ -44,12 +43,134 @@ use crate::message_bar::MessageBuffer;
 use crate::scheduler::Scheduler;
 use crate::{input, renderer};
 
-/// Event context for one individual Alacritty window.
+/// Serializable information for a single tab (for session persistence)
+#[cfg(target_os = "linux")]
+
+/// Information about a single tab
+#[cfg(target_os = "linux")]
+pub struct TabInfo {
+    pub terminal: Arc<FairMutex<Term<EventProxy>>>,
+    pub title: String,
+    #[cfg(not(windows))]
+    pub master_fd: RawFd,
+    #[cfg(not(windows))]
+    pub shell_pid: u32,
+}
+
+/// Tab management for Linux in-window tabs
+#[cfg(target_os = "linux")]
+pub struct TabManager {
+    pub tabs: Vec<TabInfo>,
+    pub active_tab: usize,
+}
+
+#[cfg(target_os = "linux")]
+impl TabManager {
+    pub fn new(
+        initial_terminal: Arc<FairMutex<Term<EventProxy>>>,
+        master_fd: RawFd,
+        shell_pid: u32,
+    ) -> Self {
+        let initial_tab = TabInfo {
+            terminal: initial_terminal,
+            title: "Terminal".to_string(),
+            master_fd,
+            shell_pid,
+        };
+        Self { tabs: vec![initial_tab], active_tab: 0 }
+    }
+
+    pub fn active_terminal(&self) -> &Arc<FairMutex<Term<EventProxy>>> {
+        &self.tabs[self.active_tab].terminal
+    }
+
+    pub fn active_tab_info(&self) -> &TabInfo {
+        &self.tabs[self.active_tab]
+    }
+
+    pub fn add_tab(
+        &mut self,
+        terminal: Arc<FairMutex<Term<EventProxy>>>,
+        master_fd: RawFd,
+        shell_pid: u32,
+    ) -> usize {
+        let tab_info = TabInfo {
+            terminal,
+            title: format!("Terminal {}", self.tabs.len() + 1),
+            master_fd,
+            shell_pid,
+        };
+        self.tabs.push(tab_info);
+        self.tabs.len() - 1
+    }
+
+    pub fn remove_tab(&mut self, index: usize) -> bool {
+        if self.tabs.len() <= 1 || index >= self.tabs.len() {
+            return false;
+        }
+
+        self.tabs.remove(index);
+
+        // Adjust active tab index
+        if self.active_tab >= index && self.active_tab > 0 {
+            self.active_tab -= 1;
+        } else if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len() - 1;
+        }
+
+        true
+    }
+
+    pub fn switch_to_tab(&mut self, index: usize) -> bool {
+        if index < self.tabs.len() {
+            self.active_tab = index;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn next_tab(&mut self) {
+        self.active_tab = (self.active_tab + 1) % self.tabs.len();
+    }
+
+    pub fn previous_tab(&mut self) {
+        self.active_tab =
+            if self.active_tab == 0 { self.tabs.len() - 1 } else { self.active_tab - 1 };
+    }
+
+    /// Check if a click position is in the tab bar and return the tab index if clicked
+    pub fn tab_clicked(&self, x: f32, y: f32, columns: usize, screen_lines: usize) -> Option<usize> {
+        // Tab bar is now at the bottom (last line), check if click is in that area
+        // y is in cell coordinates, so we need to check if it's at the last line
+        let tab_bar_line = screen_lines as f32;
+        if y < tab_bar_line || y > tab_bar_line + 1.0 {
+            return None;
+        }
+
+        // Calculate which tab was clicked based on x position
+        let tab_count = self.tabs.len();
+        if tab_count <= 1 {
+            return None;
+        }
+
+        let tab_width = columns / tab_count;
+        let clicked_tab = (x as usize) / tab_width;
+
+        if clicked_tab < tab_count { Some(clicked_tab) } else { None }
+    }
+}
+
 pub struct WindowContext {
     pub message_buffer: MessageBuffer,
     pub display: Display,
     pub dirty: bool,
     event_queue: Vec<WinitEvent<Event>>,
+    // Linux: use tab manager for multiple terminals
+    #[cfg(target_os = "linux")]
+    tab_manager: TabManager,
+    // Non-Linux: single terminal as before
+    #[cfg(not(target_os = "linux"))]
     terminal: Arc<FairMutex<Term<EventProxy>>>,
     cursor_blink_timed_out: bool,
     prev_bell_cmd: Option<Instant>,
@@ -61,15 +182,52 @@ pub struct WindowContext {
     touch: TouchPurpose,
     occluded: bool,
     preserve_title: bool,
-    #[cfg(not(windows))]
+    // Non-Linux: keep master_fd and shell_pid in WindowContext
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     master_fd: RawFd,
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     shell_pid: u32,
     window_config: ParsedOptions,
     config: Rc<UiConfig>,
 }
 
 impl WindowContext {
+    /// Get cloned Arc reference to the active terminal (Linux)
+    #[cfg(target_os = "linux")]
+    pub fn terminal(&self) -> Arc<FairMutex<Term<EventProxy>>> {
+        self.tab_manager.active_terminal().clone()
+    }
+
+    /// Get cloned Arc reference to the active terminal (non-Linux)
+    #[cfg(not(target_os = "linux"))]
+    pub fn terminal(&self) -> Arc<FairMutex<Term<EventProxy>>> {
+        self.terminal.clone()
+    }
+
+    /// Get master fd for active tab (Linux)
+    #[cfg(target_os = "linux")]
+    pub fn master_fd(&self) -> RawFd {
+        self.tab_manager.active_tab_info().master_fd
+    }
+
+    /// Get shell pid for active tab (Linux)
+    #[cfg(target_os = "linux")]
+    pub fn shell_pid(&self) -> u32 {
+        self.tab_manager.active_tab_info().shell_pid
+    }
+
+    /// Get master fd (non-Linux)
+    #[cfg(all(not(windows), not(target_os = "linux")))]
+    pub fn master_fd(&self) -> RawFd {
+        self.master_fd
+    }
+
+    /// Get shell pid (non-Linux)
+    #[cfg(all(not(windows), not(target_os = "linux")))]
+    pub fn shell_pid(&self) -> u32 {
+        self.shell_pid
+    }
+
     /// Create initial window context that does bootstrapping the graphics API we're going to use.
     pub fn initial(
         event_loop: &ActiveEventLoop,
@@ -234,11 +392,17 @@ impl WindowContext {
         // Create context for the Alacritty window.
         Ok(WindowContext {
             preserve_title,
+            // Linux: use tab manager
+            #[cfg(target_os = "linux")]
+            tab_manager: TabManager::new(terminal, master_fd, shell_pid),
+            // Non-Linux: use direct terminal reference
+            #[cfg(not(target_os = "linux"))]
             terminal,
             display,
-            #[cfg(not(windows))]
+            // Non-Linux: keep master_fd and shell_pid in WindowContext
+            #[cfg(all(not(windows), not(target_os = "linux")))]
             master_fd,
-            #[cfg(not(windows))]
+            #[cfg(all(not(windows), not(target_os = "linux")))]
             shell_pid,
             config,
             notifier: Notifier(loop_tx),
@@ -265,7 +429,7 @@ impl WindowContext {
         self.config = self.window_config.override_config_rc(self.config.clone());
 
         self.display.update_config(&self.config);
-        self.terminal.lock().set_options(self.config.term_options());
+        self.terminal().lock().set_options(self.config.term_options());
 
         // Reload cursor if its thickness has changed.
         if (old_config.cursor.thickness() - self.config.cursor.thickness()).abs() > f32::EPSILON {
@@ -387,13 +551,16 @@ impl WindowContext {
         }
 
         // Redraw the window.
-        let terminal = self.terminal.lock();
+        let terminal_arc = self.terminal();
+        let terminal = terminal_arc.lock();
         self.display.draw(
             terminal,
             scheduler,
             &self.message_buffer,
             &self.config,
             &mut self.search_state,
+            #[cfg(target_os = "linux")]
+            Some(&self.tab_manager),
         );
     }
 
@@ -422,7 +589,13 @@ impl WindowContext {
             },
         }
 
-        let mut terminal = self.terminal.lock();
+        let terminal_arc = self.terminal();
+        let mut terminal = terminal_arc.lock();
+
+        #[cfg(not(windows))]
+        let master_fd = self.master_fd();
+        #[cfg(not(windows))]
+        let shell_pid = self.shell_pid();
 
         let old_is_searching = self.search_state.history_index.is_some();
 
@@ -433,6 +606,7 @@ impl WindowContext {
             inline_search_state: &mut self.inline_search_state,
             search_state: &mut self.search_state,
             modifiers: &mut self.modifiers,
+            #[cfg(not(target_os = "linux"))]
             notifier: &mut self.notifier,
             display: &mut self.display,
             mouse: &mut self.mouse,
@@ -440,10 +614,12 @@ impl WindowContext {
             dirty: &mut self.dirty,
             occluded: &mut self.occluded,
             terminal: &mut terminal,
+            #[cfg(target_os = "linux")]
+            tab_manager: &mut self.tab_manager,
             #[cfg(not(windows))]
-            master_fd: self.master_fd,
+            master_fd,
             #[cfg(not(windows))]
-            shell_pid: self.shell_pid,
+            shell_pid,
             preserve_title: self.preserve_title,
             config: &self.config,
             event_proxy,
@@ -452,7 +628,10 @@ impl WindowContext {
             clipboard,
             scheduler,
         };
-        let mut processor = input::Processor::new(context);
+        let mut processor: input::Processor<
+            EventProxy,
+            crate::event::ActionContext<'_, EventProxy>,
+        > = input::Processor::new(context);
 
         for event in self.event_queue.drain(..) {
             processor.handle_event(event);
@@ -468,6 +647,8 @@ impl WindowContext {
                 &mut self.search_state,
                 old_is_searching,
                 &self.config,
+                #[cfg(target_os = "linux")]
+                Some(&self.tab_manager),
             );
             self.dirty = true;
         }
@@ -501,15 +682,16 @@ impl WindowContext {
     /// Write the ref test results to the disk.
     pub fn write_ref_test_results(&self) {
         // Dump grid state.
-        let mut grid = self.terminal.lock().grid().clone();
+        let terminal_arc = self.terminal();
+        let mut grid = terminal_arc.lock().grid().clone();
         grid.initialize_all();
         grid.truncate();
 
-        let serialized_grid = json::to_string(&grid).expect("serialize grid");
+        let serialized_grid = serde_json::to_string(&grid).expect("serialize grid");
 
         let size_info = &self.display.size_info;
         let size = TermSize::new(size_info.columns(), size_info.screen_lines());
-        let serialized_size = json::to_string(&size).expect("serialize size");
+        let serialized_size = serde_json::to_string(&size).expect("serialize size");
 
         let serialized_config = format!("{{\"history_size\":{}}}", grid.history_size());
 
@@ -535,6 +717,7 @@ impl WindowContext {
         search_state: &mut SearchState,
         old_is_searching: bool,
         config: &UiConfig,
+        #[cfg(target_os = "linux")] tab_manager: Option<&TabManager>,
     ) {
         // Compute cursor positions before resize.
         let num_lines = terminal.screen_lines();
@@ -545,7 +728,15 @@ impl WindowContext {
             search_state.direction == Direction::Left
         };
 
-        display.handle_update(terminal, notifier, message_buffer, search_state, config);
+        display.handle_update(
+            terminal,
+            notifier,
+            message_buffer,
+            search_state,
+            config,
+            #[cfg(target_os = "linux")]
+            tab_manager,
+        );
 
         let new_is_searching = search_state.history_index.is_some();
         if !old_is_searching && new_is_searching {
